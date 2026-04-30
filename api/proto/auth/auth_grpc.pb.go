@@ -27,11 +27,11 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// AuthService — сервис аутентификации для нашего роя агентов
+// AuthService — service for authentication for our agents
 type AuthServiceClient interface {
-	// Регистрация: Envoy превратит это в POST запрос
+	// Registration: Envoy will convert this to a POST request
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
-	// Логин: получение токенов доступа
+	// Login: get access tokens
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 }
 
@@ -67,11 +67,11 @@ func (c *authServiceClient) Login(ctx context.Context, in *LoginRequest, opts ..
 // All implementations must embed UnimplementedAuthServiceServer
 // for forward compatibility.
 //
-// AuthService — сервис аутентификации для нашего роя агентов
+// AuthService — service for authentication for our agents
 type AuthServiceServer interface {
-	// Регистрация: Envoy превратит это в POST запрос
+	// Registration: Envoy will convert this to a POST request
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
-	// Логин: получение токенов доступа
+	// Login: get access tokens
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	mustEmbedUnimplementedAuthServiceServer()
 }

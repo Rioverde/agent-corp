@@ -23,9 +23,14 @@ const (
 
 // Config represents the configuration for the application.
 type Config struct {
-	HTTPServer HTTPServerConfig `envPrefix:"HTTP_"`
+	GRPCServer GRPCServerConfig `envPrefix:"GRPC_"`
 	Database   DatabaseConfig   `envPrefix:"DATABASE_"`
 	Vault      VaultConfig      `envPrefix:"VAULT_"`
+}
+
+// GRPCServerConfig represents the configuration for the gRPC server.
+type GRPCServerConfig struct {
+	Address string `env:"ADDR" envDefault:":9090"`
 }
 
 // DatabaseConfig represents the configuration for the database.
@@ -36,13 +41,6 @@ type DatabaseConfig struct {
 	MaxConnIdleTime   time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`
 	MaxConnLifetime   time.Duration `env:"MAX_CONN_LIFETIME" envDefault:"30m"`
 	HealthCheckPeriod time.Duration `env:"HEALTH_CHECK_PERIOD" envDefault:"1m"`
-}
-
-// HTTPServerConfig represents the configuration for the HTTP server.
-type HTTPServerConfig struct {
-	Address     string        `env:"ADDR" envDefault:":8080"`
-	Timeout     time.Duration `env:"TIMEOUT" envDefault:"20s"`
-	IdleTimeout time.Duration `env:"IDLE_TIMEOUT" envDefault:"20s"`
 }
 
 // VaultConfig represents the configuration for the Vault.
