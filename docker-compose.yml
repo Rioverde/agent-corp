@@ -57,11 +57,19 @@ services:
     entrypoint:
       - /bin/sh
       - -ec
-      - vault kv put secret/auth DATABASE_URL="$${DATABASE_URL}"
+      - |
+        vault kv put secret/auth \
+          DATABASE_URL="$${DATABASE_URL}" \
+          DATABASE_MAX_CONNS="$${DATABASE_MAX_CONNS}" \
+          DATABASE_MIN_CONNS="$${DATABASE_MIN_CONNS}" \
+          DATABASE_MAX_CONN_IDLE_TIME="$${DATABASE_MAX_CONN_IDLE_TIME}"
     environment:
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-root-token
       DATABASE_URL: postgres://agent:agent@postgres:5432/agent_corp?sslmode=disable
+      DATABASE_MAX_CONNS: "10"
+      DATABASE_MIN_CONNS: "2"
+      DATABASE_MAX_CONN_IDLE_TIME: 5m
     depends_on:
       vault:
         condition: service_healthy

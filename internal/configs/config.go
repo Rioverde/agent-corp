@@ -3,6 +3,7 @@ package configs
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/caarlos0/env/v11"
@@ -10,8 +11,11 @@ import (
 )
 
 const (
-	requestTimeout = 10 * time.Second
-	databaseURLKey = "DATABASE_URL"
+	requestTimeout             = 10 * time.Second
+	databaseURLKey             = "DATABASE_URL"
+	databaseMaxConnsKey        = "DATABASE_MAX_CONNS"
+	databaseMinConnsKey        = "DATABASE_MIN_CONNS"
+	databaseMaxConnIdleTimeKey = "DATABASE_MAX_CONN_IDLE_TIME"
 )
 
 // Config represents the configuration for the application.
@@ -23,7 +27,10 @@ type Config struct {
 
 // DatabaseConfig represents the configuration for the database.
 type DatabaseConfig struct {
-	URL string `env:"URL" envDefault:"postgres://agent:agent@postgres:5432/agent_corp?sslmode=disable"`
+	URL             string        `env:"URL" envDefault:"postgres://agent:agent@postgres:5432/agent_corp?sslmode=disable"`
+	MaxConns        int32         `env:"MAX_CONNS" envDefault:"10"`
+	MinConns        int32         `env:"MIN_CONNS" envDefault:"2"`
+	MaxConnIdleTime time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`
 }
 
 // HTTPServerConfig represents the configuration for the HTTP server.
@@ -94,7 +101,6 @@ func applyVaultOverrides(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("read vault secret %q from mount %q: empty response", cfg.Vault.SecretPath, cfg.Vault.MountPath)
 	}
 
-	// check if the secret contains the database URL
 	rawDatabaseURL, ok := resp.Data.Data[databaseURLKey]
 	if !ok {
 		return fmt.Errorf("vault secret %q does not contain %s", cfg.Vault.SecretPath, databaseURLKey)
@@ -106,7 +112,49 @@ func applyVaultOverrides(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("vault secret %q contains non-string %s", cfg.Vault.SecretPath, databaseURLKey)
 	}
 
-	// set the database URL
 	cfg.Database.URL = databaseURL
+
+	if err := setInt32FromVault(resp.Data.Data, databaseMaxConnsKey, &cfg.Database.MaxConns); err != nil {
+		return err
+	}
+
+	if err := setInt32FromVault(resp.Data.Data, databaseMinConnsKey, &cfg.Database.MinConns); err != nil {
+		return err
+	}
+
+	if err := setDurationFromVault(resp.Data.Data, databaseMaxConnIdleTimeKey, &cfg.Database.MaxConnIdleTime); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func setInt32FromVault(data map[string]interface{}, key string, target *int32) error {
+	rawValue, ok := data[key]
+	if !ok {
+		return nil
+	}
+
+	value, err := strconv.ParseInt(fmt.Sprint(rawValue), 10, 32)
+	if err != nil {
+		return fmt.Errorf("vault secret contains invalid %s: %w", key, err)
+	}
+
+	*target = int32(value)
+	return nil
+}
+
+func setDurationFromVault(data map[string]interface{}, key string, target *time.Duration) error {
+	rawValue, ok := data[key]
+	if !ok {
+		return nil
+	}
+
+	value, err := time.ParseDuration(fmt.Sprint(rawValue))
+	if err != nil {
+		return fmt.Errorf("vault secret contains invalid %s: %w", key, err)
+	}
+
+	*target = value
 	return nil
 }

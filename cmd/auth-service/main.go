@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Rioverde/agent-corp/internal/configs"
+	"github.com/Rioverde/agent-corp/internal/pkg/db"
 	"github.com/go-chi/chi/middleware"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
@@ -26,7 +27,7 @@ func main() {
 	// initialize logger
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		panic(err)
+		logger.Fatal("Failed to initialize logger", zap.Error(err))
 	}
 	defer logger.Sync()
 
@@ -35,6 +36,24 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to load configuration", zap.Error(err))
 	}
+
+	logger.Info("Configuration loaded")
+
+	// run the database migrations
+	if err := db.RunMigrations(ctx, cfg.Database); err != nil {
+		logger.Fatal("Failed to run database migrations", zap.Error(err))
+	}
+
+	logger.Info("Database migrations applied")
+
+	// create a connection pool
+	pool, err := db.NewPool(context.Background(), cfg.Database)
+	if err != nil {
+		logger.Fatal("Failed to create database connection pool", zap.Error(err))
+	}
+	defer pool.Close()
+
+	logger.Info("Database connection pool established")
 
 	// run the server to listen for requests
 	r := chi.NewRouter()
@@ -56,16 +75,15 @@ func main() {
 		IdleTimeout:  cfg.HTTPServer.IdleTimeout,
 	}
 
-	logger.Info("Starting HTTP server", zap.String("address", cfg.HTTPServer.Address))
-
 	// start the server
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("Failed to start HTTP server", zap.Error(err))
 		}
-	}()
 
-	logger.Info("Auth-service is up and running", zap.String("address", cfg.HTTPServer.Address))
+		logger.Info("Auth-service is up and running", zap.String("address", cfg.HTTPServer.Address))
+
+	}()
 
 	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 5 seconds.
 	stop := make(chan os.Signal, 1)
