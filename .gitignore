@@ -1,0 +1,69 @@
+# Go build artifacts
+/auth-service
+bin/
+build/
+dist/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+
+# Go workspace and local tooling
+go.work
+go.work.sum
+.gopath/
+
+# Test and coverage output
+coverage/
+coverage.out
+coverage.html
+*.cover
+*.cov
+
+# Logs
+logs/
+*.log
+
+# Environment and local config
+.env
+.env.*
+!.env.example
+*.local
+configs/*.local.*
+
+# Secrets and certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Database and runtime files
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+
+# Docker and deployment overrides
+docker-compose.override.yml
+compose.override.yml
+
+# Editor and IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+.cache/
