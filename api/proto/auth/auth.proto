@@ -2,16 +2,16 @@ syntax = "proto3";
 
 package auth;
 
-// Путь для генерации Go-кода
+// Path for generating Go code
 option go_package = "github.com/Rioverde/agent-corp/api/proto/auth;auth";
 
-// Импорт стандартных аннотаций Google для маппинга gRPC <-> HTTP
+//  Import standard annotations for gRPC <-> HTTP mapping
 import "google/api/annotations.proto";
 
-// AuthService — сервис аутентификации для нашего роя агентов
+// AuthService — service for authentication for our agents
 service AuthService {
   
-  // Регистрация: Envoy превратит это в POST запрос
+  // Registration: Envoy will convert this to a POST request
   rpc Register (RegisterRequest) returns (RegisterResponse) {
     option (google.api.http) = {
       post: "/v1/auth/register"
@@ -19,7 +19,7 @@ service AuthService {
     };
   }
 
-  // Логин: получение токенов доступа
+  // Login: get access tokens
   rpc Login (LoginRequest) returns (LoginResponse) {
     option (google.api.http) = {
       post: "/v1/auth/login"
@@ -28,7 +28,7 @@ service AuthService {
   }
 }
 
-// Сообщения для регистрации
+// Messages for registration
 message RegisterRequest {
   string email = 1;
   string password = 2;
@@ -38,7 +38,7 @@ message RegisterResponse {
   string user_id = 1;
 }
 
-// Сообщения для авторизации
+// Messages for authentication
 message LoginRequest {
   string email = 1;
   string password = 2;
@@ -47,4 +47,6 @@ message LoginRequest {
 message LoginResponse {
   string access_token = 1;
   string refresh_token = 2;
+  int64 expires_in = 3;
+  string token_type = 4;
 }

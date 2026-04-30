@@ -1,13 +1,16 @@
-package configs
+package config
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/hashicorp/vault-client-go"
+	"go.uber.org/zap"
 )
 
 const (
@@ -27,10 +30,12 @@ type Config struct {
 
 // DatabaseConfig represents the configuration for the database.
 type DatabaseConfig struct {
-	URL             string        `env:"URL" envDefault:"postgres://agent:agent@postgres:5432/agent_corp?sslmode=disable"`
-	MaxConns        int32         `env:"MAX_CONNS" envDefault:"10"`
-	MinConns        int32         `env:"MIN_CONNS" envDefault:"2"`
-	MaxConnIdleTime time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`
+	URL               string        `env:"URL" envDefault:"postgres://agent:agent@postgres:5432/agent_corp?sslmode=disable"`
+	MaxConns          int32         `env:"MAX_CONNS" envDefault:"10"`
+	MinConns          int32         `env:"MIN_CONNS" envDefault:"2"`
+	MaxConnIdleTime   time.Duration `env:"MAX_CONN_IDLE_TIME" envDefault:"5m"`
+	MaxConnLifetime   time.Duration `env:"MAX_CONN_LIFETIME" envDefault:"30m"`
+	HealthCheckPeriod time.Duration `env:"HEALTH_CHECK_PERIOD" envDefault:"1m"`
 }
 
 // HTTPServerConfig represents the configuration for the HTTP server.
@@ -49,50 +54,43 @@ type VaultConfig struct {
 	SecretPath string `env:"SECRET_PATH" envDefault:"auth"`
 }
 
-// NewConfig loads configuration from the environment and optionally overrides it
-// with values from Vault.
-func NewConfig(ctx context.Context) (*Config, error) {
-	// parse environment variables
+// NewConfig loads configuration from the environment and applies overrides
+// from Vault. If Vault is unavailable and not required, it logs a warning
+// and continues with environment values.
+func NewConfig(ctx context.Context, logger *zap.Logger) (*Config, error) {
 	cfg, err := env.ParseAs[Config]()
 	if err != nil {
 		return nil, fmt.Errorf("parse environment config: %w", err)
 	}
 
-	// apply overrides from Vault
 	if err := applyVaultOverrides(ctx, &cfg); err != nil {
 		if cfg.Vault.Required {
 			return nil, err
 		}
+		logger.Warn("Vault overrides skipped, falling back to environment values", zap.Error(err))
 	}
 
 	return &cfg, nil
 }
 
-// applyVaultOverrides reads the Vault secret at the given path
 func applyVaultOverrides(ctx context.Context, cfg *Config) error {
-	// create vault client
 	client, err := vault.New(
 		vault.WithAddress(cfg.Vault.Addr),
 		vault.WithRequestTimeout(requestTimeout),
 	)
-	// if the Vault is not required, we can ignore the error
 	if err != nil {
 		return fmt.Errorf("create vault client: %w", err)
 	}
 
-	// set the Vault token
 	if err := client.SetToken(cfg.Vault.Token); err != nil {
 		return fmt.Errorf("set vault token: %w", err)
 	}
 
-	// read the Vault secret
 	resp, err := client.Secrets.KvV2Read(
 		ctx,
 		cfg.Vault.SecretPath,
 		vault.WithMountPath(cfg.Vault.MountPath),
 	)
-
-	// if the Vault is not required, we can ignore the error
 	if err != nil {
 		return fmt.Errorf("read vault secret %q from mount %q: %w", cfg.Vault.SecretPath, cfg.Vault.MountPath, err)
 	}
@@ -106,7 +104,6 @@ func applyVaultOverrides(ctx context.Context, cfg *Config) error {
 		return fmt.Errorf("vault secret %q does not contain %s", cfg.Vault.SecretPath, databaseURLKey)
 	}
 
-	// check if the secret contains the database URL
 	databaseURL, ok := rawDatabaseURL.(string)
 	if !ok {
 		return fmt.Errorf("vault secret %q contains non-string %s", cfg.Vault.SecretPath, databaseURLKey)
@@ -129,32 +126,60 @@ func applyVaultOverrides(ctx context.Context, cfg *Config) error {
 	return nil
 }
 
-func setInt32FromVault(data map[string]interface{}, key string, target *int32) error {
+func setInt32FromVault(data map[string]any, key string, target *int32) error {
 	rawValue, ok := data[key]
 	if !ok {
 		return nil
 	}
 
-	value, err := strconv.ParseInt(fmt.Sprint(rawValue), 10, 32)
-	if err != nil {
-		return fmt.Errorf("vault secret contains invalid %s: %w", key, err)
+	var n int64
+	switch v := rawValue.(type) {
+	case string:
+		parsed, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			return fmt.Errorf("vault secret contains invalid %s: %w", key, err)
+		}
+		n = parsed
+	case json.Number:
+		parsed, err := v.Int64()
+		if err != nil {
+			return fmt.Errorf("vault secret contains invalid %s: %w", key, err)
+		}
+		n = parsed
+	case float64:
+		n = int64(v)
+	case int:
+		n = int64(v)
+	case int64:
+		n = v
+	default:
+		return fmt.Errorf("vault secret %s has unsupported type %T", key, rawValue)
 	}
 
-	*target = int32(value)
+	if n > math.MaxInt32 || n < math.MinInt32 {
+		return fmt.Errorf("vault secret %s value %d overflows int32", key, n)
+	}
+
+	*target = int32(n)
 	return nil
 }
 
-func setDurationFromVault(data map[string]interface{}, key string, target *time.Duration) error {
+func setDurationFromVault(data map[string]any, key string, target *time.Duration) error {
 	rawValue, ok := data[key]
 	if !ok {
 		return nil
 	}
 
-	value, err := time.ParseDuration(fmt.Sprint(rawValue))
+	s, ok := rawValue.(string)
+	if !ok {
+		return fmt.Errorf("vault secret %s expected string duration, got %T", key, rawValue)
+	}
+
+	parsed, err := time.ParseDuration(s)
 	if err != nil {
 		return fmt.Errorf("vault secret contains invalid %s: %w", key, err)
 	}
 
-	*target = value
+	*target = parsed
 	return nil
 }

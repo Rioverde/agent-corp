@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: cmd/auth-service/dockerfile
     environment:
-      DATABASE_URL: postgres://agent:agent@postgres:5432/agent_corp?sslmode=disable
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: dev-root-token
       VAULT_REQUIRED: "true"

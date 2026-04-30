@@ -29,7 +29,6 @@ require (
 
 require (
 	github.com/fatih/color v1.18.0 // indirect
-	github.com/go-chi/chi v1.5.5
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect

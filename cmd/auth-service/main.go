@@ -3,50 +3,49 @@ package main
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/Rioverde/agent-corp/internal/configs"
-	"github.com/Rioverde/agent-corp/internal/pkg/db"
-	"github.com/go-chi/chi/middleware"
+	"github.com/Rioverde/agent-corp/internal/config"
+	"github.com/Rioverde/agent-corp/internal/db"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 )
 
 const (
-	configLoadTimeout = 20 * time.Second
-	shutdownTimeout   = 5 * time.Second
+	configLoadTimeout  = 20 * time.Second
+	shutdownTimeout    = 5 * time.Second
+	readinessDBTimeout = 2 * time.Second
 )
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), configLoadTimeout)
-	defer cancel()
-	// initialize logger
 	logger, err := zap.NewDevelopment()
 	if err != nil {
-		logger.Fatal("Failed to initialize logger", zap.Error(err))
+		log.Fatalf("failed to initialize logger: %v", err)
 	}
-	defer logger.Sync()
+	defer func() { _ = logger.Sync() }()
 
-	// get the configuration
-	cfg, err := configs.NewConfig(ctx)
+	cfgCtx, cfgCancel := context.WithTimeout(context.Background(), configLoadTimeout)
+	defer cfgCancel()
+
+	cfg, err := config.NewConfig(cfgCtx, logger)
 	if err != nil {
 		logger.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
 	logger.Info("Configuration loaded")
 
-	// run the database migrations
-	if err := db.RunMigrations(ctx, cfg.Database); err != nil {
+	if err := db.RunMigrations(cfgCtx, cfg.Database); err != nil {
 		logger.Fatal("Failed to run database migrations", zap.Error(err))
 	}
 
 	logger.Info("Database migrations applied")
 
-	// create a connection pool
 	pool, err := db.NewPool(context.Background(), cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to create database connection pool", zap.Error(err))
@@ -55,15 +54,26 @@ func main() {
 
 	logger.Info("Database connection pool established")
 
-	// run the server to listen for requests
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// define routes
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+	// Liveness — process is up.
+	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Readiness — process can serve traffic (DB reachable).
+	r.Get("/ready", func(w http.ResponseWriter, req *http.Request) {
+		pingCtx, cancel := context.WithTimeout(req.Context(), readinessDBTimeout)
+		defer cancel()
+		if err := pool.Ping(pingCtx); err != nil {
+			logger.Warn("readiness probe failed", zap.Error(err))
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -75,26 +85,22 @@ func main() {
 		IdleTimeout:  cfg.HTTPServer.IdleTimeout,
 	}
 
-	// start the server
+	logger.Info("Auth-service is up and running", zap.String("address", cfg.HTTPServer.Address))
+
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Fatal("Failed to start HTTP server", zap.Error(err))
 		}
-
-		logger.Info("Auth-service is up and running", zap.String("address", cfg.HTTPServer.Address))
-
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 5 seconds.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
-	<-stop // Wait for a stop signal.
+	<-stop
 
 	logger.Info("Shutting down gracefully...")
 
-	// Graceful Shutdown
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
@@ -103,5 +109,4 @@ func main() {
 	}
 
 	logger.Info("Service stopped")
-
 }

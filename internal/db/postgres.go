@@ -6,21 +6,23 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/Rioverde/agent-corp/internal/configs"
+	"github.com/Rioverde/agent-corp/internal/config"
 )
 
 // NewPool creates a new Postgres connection pool.
-func NewPool(ctx context.Context, cfg configs.DatabaseConfig) (*pgxpool.Pool, error) {
-	config, err := pgxpool.ParseConfig(cfg.URL)
+func NewPool(ctx context.Context, cfg config.DatabaseConfig) (*pgxpool.Pool, error) {
+	poolCfg, err := pgxpool.ParseConfig(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("parse postgres connection string: %w", err)
 	}
 
-	config.MaxConns = cfg.MaxConns
-	config.MinConns = cfg.MinConns
-	config.MaxConnIdleTime = cfg.MaxConnIdleTime
+	poolCfg.MaxConns = cfg.MaxConns
+	poolCfg.MinConns = cfg.MinConns
+	poolCfg.MaxConnIdleTime = cfg.MaxConnIdleTime
+	poolCfg.MaxConnLifetime = cfg.MaxConnLifetime
+	poolCfg.HealthCheckPeriod = cfg.HealthCheckPeriod
 
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create postgres connection pool: %w", err)
 	}
